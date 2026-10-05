@@ -134,7 +134,7 @@ Workflow заходит на сервер по SSH, загружает код и
 ### Вручную (вариант compose)
 
 ```bash
-git clone https://github.com/OXXXYZED/testovoe-proweb.git && cd testovoe-proweb
+git clone https://github.com/OXXXYZED/school-jwt-api.git && cd school-jwt-api
 cp .env.example .env
 # в .env: DOMAIN=<домен> и DJANGO_SECRET_KEY=<вывод команды ниже>
 python3 -c "import secrets; print(secrets.token_urlsafe(50))"
