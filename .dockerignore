@@ -1,0 +1,8 @@
+.git
+.github
+.venv
+.ruff_cache
+**/__pycache__
+.env
+db.sqlite3
+staticfiles

@@ -1,0 +1,105 @@
+name: Deploy
+
+# Deploys to a VPS over SSH (see deploy/remote-deploy.sh for the targets). Enabled once the
+# repository variables DEPLOY_HOST and DOMAIN are set (Settings → Secrets and variables → Actions):
+#   variables: DEPLOY_HOST, DOMAIN, DEPLOY_USER (default root), DEPLOY_PORT (default 22),
+#              DEPLOY_TARGET (auto | compose | host-caddy, default auto),
+#              DEPLOY_APP_PORT (localhost port for host-caddy, default 8800),
+#              DEPLOY_KNOWN_HOSTS (optional; output of `ssh-keyscan <host>`, else scanned on each run)
+#   secrets:   DEPLOY_SSH_KEY (private key), DEMO_PASSWORD (optional; creates demo users)
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "deploy, or diagnose: read-only checks of the server and the domain"
+        type: choice
+        options: [deploy, diagnose]
+        default: deploy
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.DEPLOY_HOST != '' && vars.DOMAIN != ''
+    runs-on: ubuntu-latest
+    env:
+      DOMAIN: ${{ vars.DOMAIN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
+          HOST: ${{ vars.DEPLOY_HOST }}
+          PORT: ${{ vars.DEPLOY_PORT || '22' }}
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
+        run: |
+          if [[ ! "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]]; then echo "Invalid DOMAIN variable" >&2; exit 1; fi
+          install -m 700 -d ~/.ssh
+          # Strip CR: a key pasted from a Windows clipboard may have CRLF line endings.
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          if ! ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null 2>&1; then
+            # Show only non-secret hints: a header line or a public key, never private key material.
+            first="$(head -n 1 ~/.ssh/id_deploy)"
+            case "$first" in
+              -----BEGIN*|ssh-*) hint="first line: ${first:0:40}" ;;
+              *) hint="first line is neither a '-----BEGIN ...' header nor a public key" ;;
+            esac
+            echo "::error::DEPLOY_SSH_KEY is not a valid private key ($hint; $(wc -l < ~/.ssh/id_deploy) lines)." \
+              "Paste the whole private key file (not .pub), from -----BEGIN OPENSSH PRIVATE KEY----- to -----END OPENSSH PRIVATE KEY-----."
+            exit 1
+          fi
+          echo "Deploy key: $(ssh-keygen -l -f ~/.ssh/id_deploy)"
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -T 15 -p "$PORT" "$HOST" > ~/.ssh/known_hosts
+          fi
+          printf 'Host vps\n  HostName %s\n  Port %s\n  User %s\n  IdentityFile ~/.ssh/id_deploy\n  BatchMode yes\n  ServerAliveInterval 30\n' \
+            "$HOST" "$PORT" "$DEPLOY_USER" > ~/.ssh/config
+
+      - name: Diagnose
+        if: inputs.mode == 'diagnose'
+        env:
+          HOST: ${{ vars.DEPLOY_HOST }}
+        run: |
+          echo "== DNS"
+          echo "$DOMAIN -> $(getent ahostsv4 "$DOMAIN" | awk '{print $1}' | sort -u | xargs || true)"
+          echo "DEPLOY_HOST -> $(getent ahostsv4 "$HOST" | awk '{print $1}' | sort -u | xargs || true)"
+          echo "== http://$DOMAIN/"
+          curl -sS -o /dev/null -D - --max-time 10 "http://$DOMAIN/" | grep -iE '^(HTTP|server|location)' || true
+          echo "== https://$DOMAIN/"
+          curl -sS -o /dev/null -D - --max-time 10 "https://$DOMAIN/" | grep -iE '^(HTTP|server|location)' || true
+          # DOMAIN was validated in "Configure SSH"; expanding it on the runner is intended.
+          # shellcheck disable=SC2029
+          ssh vps "DOMAIN='$DOMAIN' bash -s" < deploy/diagnose.sh
+
+      - name: Upload source
+        if: inputs.mode != 'diagnose'
+        run: |
+          git archive --format=tar HEAD \
+            | ssh vps 'rm -rf ~/school-api/src.new && mkdir -p ~/school-api/src.new && tar -xf - -C ~/school-api/src.new'
+
+      - name: Deploy
+        if: inputs.mode != 'diagnose'
+        env:
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+          DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET || 'auto' }}
+          APP_PORT: ${{ vars.DEPLOY_APP_PORT || '8800' }}
+        run: |
+          case "$DEPLOY_TARGET" in auto|compose|host-caddy) ;; *) echo "::error::DEPLOY_TARGET must be auto, compose or host-caddy"; exit 1 ;; esac
+          if [[ ! "$APP_PORT" =~ ^[0-9]+$ ]]; then echo "::error::DEPLOY_APP_PORT must be a number"; exit 1; fi
+          # All values are validated; expanding them on the runner is intended.
+          # shellcheck disable=SC2029
+          printf '%s' "$DEMO_PASSWORD" \
+            | ssh vps "DOMAIN='$DOMAIN' DEPLOY_TARGET='$DEPLOY_TARGET' APP_PORT='$APP_PORT' bash ~/school-api/src.new/deploy/remote-deploy.sh"
+
+      - name: Check public endpoint
+        if: inputs.mode != 'diagnose'
+        run: curl -fsS --retry 12 --retry-delay 5 --retry-all-errors -o /dev/null -w '%{http_code}\n' "https://$DOMAIN/api/docs/"

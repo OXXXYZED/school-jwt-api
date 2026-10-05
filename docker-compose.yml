@@ -1,0 +1,38 @@
+# Production-like deployment: Django (gunicorn) behind Caddy with automatic HTTPS.
+# Configure DOMAIN and DJANGO_SECRET_KEY in .env, then: docker compose up -d --build
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DJANGO_DEBUG: "0"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
+      DJANGO_ALLOWED_HOSTS: ${DOMAIN:?set DOMAIN in .env}
+      DJANGO_CSRF_TRUSTED_ORIGINS: https://${DOMAIN}
+      DJANGO_NUM_PROXIES: "1"  # Caddy
+    volumes:
+      - db:/data
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db:
+  caddy_data:
+  caddy_config:
