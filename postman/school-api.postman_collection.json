@@ -1,0 +1,1061 @@
+{
+  "info": {
+    "name": "School API",
+    "description": "Сценарий по ролям для School API (JWT + Base64).\n\n1. Укажите в переменных коллекции `password` (пароль демо-пользователей); `baseUrl` по умолчанию — публичный стенд.\n2. Запустите коллекцию целиком (Run collection): токены и id сохраняются автоматически, каждый шаг проверяется тестами.\n\nЛогин ограничен 10 попытками в минуту с IP — при частых повторных запусках возможен ответ 429.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://proweb.inzavic.uz",
+      "type": "string",
+      "description": "Адрес API"
+    },
+    {
+      "key": "teacherUsername",
+      "value": "teacher",
+      "type": "string",
+      "description": "Демо-учитель"
+    },
+    {
+      "key": "studentUsername",
+      "value": "student1",
+      "type": "string",
+      "description": "Демо-ученик"
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "string",
+      "description": "Пароль демо-пользователей (задайте перед запуском)"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string",
+      "description": "Заполняется автоматически"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string",
+      "description": "Заполняется автоматически"
+    },
+    {
+      "key": "previousRefreshToken",
+      "value": "",
+      "type": "string",
+      "description": "Заполняется автоматически"
+    },
+    {
+      "key": "basicCredentials",
+      "value": "",
+      "type": "string",
+      "description": "Заполняется автоматически: base64(username:password)"
+    },
+    {
+      "key": "studentId",
+      "value": "",
+      "type": "string",
+      "description": "Заполняется автоматически"
+    },
+    {
+      "key": "gradeId",
+      "value": "",
+      "type": "string",
+      "description": "Заполняется автоматически"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Учитель",
+      "item": [
+        {
+          "name": "Login (teacher): Base64 вручную",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  const raw = pm.collectionVariables.get('teacherUsername') + ':' + pm.variables.get('password');",
+                  "  pm.collectionVariables.set('basicCredentials', CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(raw)));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', data.access);",
+                  "  pm.collectionVariables.set('refreshToken', data.refresh);",
+                  "  pm.test('role is teacher', () => pm.expect(data.user.role).to.eql('teacher'));",
+                  "  pm.test('JWT payload carries the role', () => {",
+                  "    const payload = JSON.parse(atob(data.access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));",
+                  "    pm.expect(payload.role).to.eql('teacher');",
+                  "  });",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Basic {{basicCredentials}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Pre-request скрипт кодирует `username:password` в Base64 (UTF-8) и кладёт в заголовок `Authorization: Basic …` — то же самое делает вкладка Authorization → Basic Auth."
+          }
+        },
+        {
+          "name": "Me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  pm.test('teacher profile', () => pm.expect(pm.response.json().role).to.eql('teacher'));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "me",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Students (teacher only)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const student = pm.response.json().results.find(s => s.username === pm.collectionVariables.get('studentUsername'));",
+                  "  pm.test('student is listed', () => pm.expect(student).to.be.an('object'));",
+                  "  pm.collectionVariables.set('studentId', student.id);",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/students/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "students",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create grade",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "  const grade = pm.response.json();",
+                  "  pm.collectionVariables.set('gradeId', grade.id);",
+                  "  pm.test('teacher is the author', () => pm.expect(grade.teacher_name).to.be.a('string').and.not.empty);",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"student\": {{studentId}},\n  \"subject\": \"Postman\",\n  \"value\": 5,\n  \"comment\": \"Создано из Postman\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Update grade",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  pm.test('value updated', () => pm.expect(pm.response.json().value).to.eql(4));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/{{gradeId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                "{{gradeId}}",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Grades of the student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const ids = pm.response.json().results.map(g => g.id);",
+                  "  pm.test('contains the new grade', () => pm.expect(ids).to.include(Number(pm.collectionVariables.get('gradeId'))));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/?student={{studentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "student",
+                  "value": "{{studentId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Ученик",
+      "item": [
+        {
+          "name": "Login (student): Basic Auth",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', data.access);",
+                  "  pm.collectionVariables.set('refreshToken', data.refresh);",
+                  "  pm.test('role is student', () => pm.expect(data.user.role).to.eql('student'));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{studentUsername}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "Вкладка Authorization → Basic Auth: Postman сам кодирует логин и пароль в Base64."
+          }
+        },
+        {
+          "name": "My grades",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const grades = pm.response.json().results;",
+                  "  pm.test('only own grades', () => grades.forEach(g => pm.expect(g.student).to.eql(Number(pm.collectionVariables.get('studentId')))));",
+                  "  pm.test('sees the grade from the teacher', () => pm.expect(grades.map(g => g.id)).to.include(Number(pm.collectionVariables.get('gradeId'))));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                ""
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create grade → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"student\": {{studentId}},\n  \"subject\": \"Hack\",\n  \"value\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Update grade → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/{{gradeId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                "{{gradeId}}",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Students → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/students/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "students",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Токены",
+      "item": [
+        {
+          "name": "Refresh",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.collectionVariables.set('previousRefreshToken', pm.collectionVariables.get('refreshToken'));",
+                  "})();"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', data.access);",
+                  "  pm.collectionVariables.set('refreshToken', data.refresh);",
+                  "  pm.test('refresh token rotated', () => pm.expect(data.refresh).to.not.eql(pm.collectionVariables.get('previousRefreshToken')));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Reuse old refresh → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{previousRefreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Verify access token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/verify/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "verify",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{accessToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Refresh after logout → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Уборка",
+      "item": [
+        {
+          "name": "Login (teacher)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', data.access);",
+                  "  pm.collectionVariables.set('refreshToken', data.refresh);",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{teacherUsername}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete grade",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 204', () => pm.response.to.have.status(204));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/school/grades/{{gradeId}}/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "school",
+                "grades",
+                "{{gradeId}}",
+                ""
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Ошибки и регистрация",
+      "item": [
+        {
+          "name": "Wrong password → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "  pm.test('Basic challenge', () => pm.expect(pm.response.headers.get('WWW-Authenticate')).to.include('Basic'));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login",
+                ""
+              ]
+            },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{teacherUsername}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "wrong-password",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "No token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "me",
+                ""
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Register (always a student)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "(() => {",
+                  "  pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "  pm.test('created as student', () => pm.expect(pm.response.json().role).to.eql('student'));",
+                  "})();"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register/",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register",
+                ""
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"postman_{{$timestamp}}\",\n  \"password\": \"Postman-Demo-2026!\",\n  \"first_name\": \"Postman\",\n  \"role\": \"teacher\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Поле `role` игнорируется: самостоятельно можно зарегистрироваться только учеником."
+          }
+        }
+      ]
+    }
+  ]
+}

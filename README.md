@@ -4,6 +4,8 @@ REST API на Django + Django REST Framework. Пользователи (учит
 передавая логин и пароль в Base64 (`Authorization: Basic …`), получают пару JWT-токенов
 (access + refresh) и дальше передают access-токен с каждым запросом (`Authorization: Bearer …`).
 
+Демо-стенд: https://proweb.inzavic.uz/ (Swagger UI с инструкцией) · Postman-коллекция: `postman/`.
+
 Стек: Python 3.11+, Django 5.2 LTS, DRF, [SimpleJWT](https://django-rest-framework-simplejwt.readthedocs.io/),
 drf-spectacular (Swagger), SQLite; для деплоя — Docker Compose, gunicorn, Caddy (автоматический HTTPS).
 
@@ -13,7 +15,8 @@ drf-spectacular (Swagger), SQLite; для деплоя — Docker Compose, gunic
 .
 ├── config/             # конфигурация Django-проекта
 │   ├── settings.py     #   основные настройки (env-переменные, DRF, JWT, throttling)
-│   └── urls.py         #   корневые маршруты
+│   ├── urls.py         #   корневые маршруты (`/` → Swagger UI)
+│   └── swagger_*       #   инструкция на странице docs и автоподстановка токена
 ├── users/              # приложение для управления пользователями
 │   ├── models.py       #   User с ролью teacher/student
 │   ├── basic_auth.py   #   разбор `Authorization: Basic base64(username:password)`
@@ -27,6 +30,7 @@ drf-spectacular (Swagger), SQLite; для деплоя — Docker Compose, gunic
 │   ├── views.py        #   GradeViewSet
 │   └── management/commands/seed_demo.py
 ├── deploy/            # серверные скрипты деплоя (host-caddy / compose), diagnose, Caddyfile
+├── postman/           # Postman-коллекция: сценарий по ролям с автотестами
 ├── Dockerfile
 ├── docker-compose.yml
 └── manage.py
@@ -46,8 +50,9 @@ python manage.py seed_demo      # teacher / student1 / student2, пароль sc
 python manage.py runserver
 ```
 
-- Swagger UI: http://127.0.0.1:8000/api/docs/ (логин через кнопку **Authorize → basicAuth**,
-  затем access-токен в **jwtAuth**)
+- Swagger UI: http://127.0.0.1:8000/ (редирект на `/api/docs/`). Инструкция — в шапке страницы:
+  **Authorize → basicAuth**, затем **POST /api/auth/login/ → Execute**; access-токен из ответа
+  сам подставляется в **jwtAuth** (и после `/api/auth/refresh/` тоже)
 - Админка: http://127.0.0.1:8000/admin/ (`python manage.py createsuperuser`)
 
 Тесты и линтер:
@@ -56,6 +61,30 @@ python manage.py runserver
 python manage.py test
 ruff check . && ruff format --check .
 ```
+
+## Postman
+
+`postman/school-api.postman_collection.json` — сценарий по ролям: учитель (логин, ученики,
+выставление и правка оценки) → ученик (видит только свои оценки, на запись — `403`) → токены
+(refresh с ротацией, повторное использование старого refresh — `401`, verify, logout) → уборка
+(созданная оценка удаляется) → ошибки и регистрация. Токены и id сохраняются в переменных
+коллекции автоматически, каждый запрос проверяется тестами (34 проверки).
+
+1. Import → файл коллекции.
+2. В переменных коллекции задать `password` (пароль демо-пользователей); `baseUrl` по умолчанию —
+   демо-стенд, для локального запуска — `http://127.0.0.1:8000`.
+3. Run collection.
+
+Логин учителя показывает Base64 вручную (pre-request скрипт кодирует `username:password`), логин
+ученика — через вкладку Basic Auth. Из консоли:
+
+```bash
+npx newman run postman/school-api.postman_collection.json \
+  --env-var baseUrl=http://127.0.0.1:8000 --env-var password=school-demo-pass
+```
+
+Логин ограничен 10 попытками в минуту с IP (за прогон — 4), а каждый прогон регистрирует нового
+ученика `postman_<timestamp>`.
 
 ## Деплой на VPS
 

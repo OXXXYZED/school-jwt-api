@@ -179,13 +179,14 @@ SIMPLE_JWT = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "School API",
-    "DESCRIPTION": (
-        "JWT authentication for teachers and students. "
-        "Log in with `Authorization: Basic base64(username:password)`, "
-        "then send `Authorization: Bearer <access>` with every request."
-    ),
+    "DESCRIPTION": (BASE_DIR / "config" / "swagger_description.md").read_text(encoding="utf-8"),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # Pinned: the token auto-fill below relies on the Swagger UI JS API (default is @latest).
+    "SWAGGER_UI_DIST": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1",
+    "SWAGGER_UI_FAVICON_HREF": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1/favicon-32x32.png",
+    # A JS object literal (not JSON) so it can carry the token auto-fill interceptor.
+    "SWAGGER_UI_SETTINGS": (BASE_DIR / "config" / "swagger_ui.js").read_text(encoding="utf-8"),
     "APPEND_COMPONENTS": {
         "securitySchemes": {
             "basicAuth": {"type": "http", "scheme": "basic"},
